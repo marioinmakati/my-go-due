@@ -2,14 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## On Session Start
-
-Read `LEARNING.md` at the beginning of every session. It tracks the current learning progress across five steps. Use it to understand where the user left off and tailor responses accordingly — e.g. if Step 2 is in progress, focus on tracing message flow rather than giving broad overviews.
-
-> Note: This repository is currently used for **source code study only**, not active development. Prioritize explanation and tracing over code modification.
-
-> **Do NOT proactively suggest or start Step 4 (hands-on exercises) or Step 5 (secondary development goals) unless the user explicitly asks.**
-
 ## Commands
 
 ```bash

@@ -1,22 +1,6 @@
 # due 基于Go语言开发的高性能分布式游戏服务器框架
 
-[![Build Status](https://github.com/dobyte/due/workflows/Go/badge.svg)](https://github.com/dobyte/due/actions)
-[![goproxy.cn](https://goproxy.cn/stats/github.com/dobyte/due/badges/download-count.svg)](https://github.com/dobyte/due)
-[![Go Reference](https://pkg.go.dev/badge/github.com/dobyte/due.svg)](https://pkg.go.dev/github.com/dobyte/due)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Report Card](https://goreportcard.com/badge/github.com/dobyte/due)](https://goreportcard.com/report/github.com/dobyte/due)
-![Coverage](https://img.shields.io/badge/Coverage-17.4%25-red)
-[![Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)
-
-[![Release](https://img.shields.io/github/v/release/dobyte/due?style=flat)](https://github.com/dobyte/due/releases)
-![Stars](https://img.shields.io/github/stars/dobyte/due?style=flat)
-![Forks](https://img.shields.io/github/forks/dobyte/due?style=flat)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/dobyte/due?style=flat)](https://github.com/dobyte/due/pulls)
-[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/dobyte/due?style=flat)](https://github.com/dobyte/due/pulls?q=is%3Apr+is%3Aclosed)
-[![GitHub issues](https://img.shields.io/github/issues/dobyte/due?style=flat)](https://github.com/dobyte/due/issues)
-[![GitHub closed issues](https://img.shields.io/github/issues-closed/dobyte/due?style=flat)](https://github.com/dobyte/due/issues?q=is%3Aissue+is%3Aclosed)
-
-### 1.介绍
+## 1.介绍
 
 [due](https://dobyte.github.io/) 是一款基于Go语言开发的轻量级、高性能分布式游戏服务器框架。
 其中，模块设计方面借鉴了[kratos](https://github.com/go-kratos/kratos)的模块设计思路，旨在为游戏服务器开发提供完善、高效、优雅、标准化的解决方案。
@@ -24,18 +8,18 @@
 
 ![架构图](architecture.jpg)
 
-#### 框架核心概念
+### 框架核心概念
 
 due 围绕**容器 + 组件**的模型运转，所有节点类型都实现 `component.Component` 接口，由 `Container` 统一管理生命周期（Init → Start → Close → Destroy）。
 
 **四种节点角色：**
 
-| 角色 | 包路径 | 职责 |
-|------|--------|------|
-| Gate | `cluster/gate` | 管理客户端连接（TCP/KCP/WS），接收数据包并路由到 Node |
-| Node | `cluster/node` | 核心业务逻辑；可有状态（绑定 UID）或无状态 |
-| Mesh | `cluster/mesh` | 无状态微服务，Node 通过 RPC 调用 |
-| Client | `cluster/client` | 内置测试/调试客户端，直连 Gate |
+| 角色   | 包路径           | 职责                                                  |
+| ------ | ---------------- | ----------------------------------------------------- |
+| Gate   | `cluster/gate`   | 管理客户端连接（TCP/KCP/WS），接收数据包并路由到 Node |
+| Node   | `cluster/node`   | 核心业务逻辑；可有状态（绑定 UID）或无状态            |
+| Mesh   | `cluster/mesh`   | 无状态微服务，Node 通过 RPC 调用                      |
+| Client | `cluster/client` | 内置测试/调试客户端，直连 Gate                        |
 
 **一条消息的完整生命周期：**
 
@@ -53,20 +37,76 @@ Mesh Handler
 
 **各模块职责速查：**
 
-| 模块 | 职责 |
-|------|------|
-| `packet` | 客户端通信协议编解码（size+header+route+seq+data） |
-| `session` | Gate 内 CID/UID 双索引连接管理 + 频道订阅 |
-| `registry` | 服务实例注册与发现（consul/etcd/nacos） |
-| `locate` | 追踪 UID 当前所在的 GateID 和 NodeID（Redis） |
-| `transport` | Node↔Mesh 公开 RPC 层（gRPC/rpcx） |
-| `eventbus` | 跨节点异步事件广播（redis/nats/kafka） |
-| `config` | 运行时动态配置热更新 |
-| `etc` | 启动时一次性静态配置 |
-| `lock` | 分布式锁（redis/memcache） |
-| `cache` | 分布式缓存（redis/memcache） |
+| 模块        | 职责                                               |
+| ----------- | -------------------------------------------------- |
+| `packet`    | 客户端通信协议编解码（size+header+route+seq+data） |
+| `session`   | Gate 内 CID/UID 双索引连接管理 + 频道订阅          |
+| `registry`  | 服务实例注册与发现（consul/etcd/nacos）            |
+| `locate`    | 追踪 UID 当前所在的 GateID 和 NodeID（Redis）      |
+| `transport` | Node↔Mesh 公开 RPC 层（gRPC/rpcx）                 |
+| `eventbus`  | 跨节点异步事件广播（redis/nats/kafka）             |
+| `config`    | 运行时动态配置热更新                               |
+| `etc`       | 启动时一次性静态配置                               |
+| `lock`      | 分布式锁（redis/memcache）                         |
+| `cache`     | 分布式缓存（redis/memcache）                       |
 
-### 2.优势
+## 2.目录结构
+
+```
+my-go-due/
+├── container.go          # 框架入口，管理所有 Component 的生命周期
+├── cluster/              # 四种节点角色的实现
+│   ├── gate/             # Gate：管理客户端连接，路由消息到 Node（入口：gate.go）
+│   ├── node/             # Node：核心业务逻辑节点，支持有状态/无状态（入口：node.go）
+│   ├── mesh/             # Mesh：无状态微服务，由 Node 通过 RPC 调用
+│   └── client/           # Client：内置测试/调试客户端（入口：client.go）
+├── internal/             # 框架内部私有实现，业务代码不可直接引用
+│   ├── transporter/      # Gate↔Node 内部通信协议
+│   ├── link/             # UID→Gate/Node 路由表（GateLinker / NodeLinker）
+│   └── dispatcher/       # 内部消息分发
+├── network/              # 客户端网络层（tcp / kcp / ws）
+├── transport/            # Node↔Mesh 公开 RPC 层（grpc / rpcx）
+├── registry/             # 服务注册与发现（consul / etcd / nacos）
+├── locate/               # 追踪 UID 所在 Gate/Node（redis）
+├── eventbus/             # 跨节点异步事件总线（redis / nats / kafka）
+├── session/              # Gate 内 CID/UID 双索引连接管理
+├── packet/               # 客户端通信协议编解码
+├── config/               # 动态配置热更新（consul / etcd / nacos / file）
+├── etc/                  # 启动时静态配置（一次性读取）
+├── lock/                 # 分布式锁（redis / memcache）
+├── cache/                # 分布式缓存（redis / memcache）
+├── log/                  # 日志组件（console / file / aliyun / tencent）
+├── component/            # Component 接口定义及 HTTP/pprof 组件
+├── core/                 # 底层工具（连接池、限流、TLS、哈希等）
+├── utils/                # 通用工具函数（时间、字符串、网络、随机数等）
+├── codes/                # 业务错误码定义
+├── encoding/             # 编解码（json / protobuf / msgpack）
+├── crypto/               # 加密工具（rsa / ecc）
+├── errors/               # 错误类型封装
+├── task/                 # 协程池（基于 ants）
+└── mode/                 # 运行模式（debug / release / test）
+```
+
+### 重点关注模块
+
+作为框架开发者，绝大多数改动会集中在以下几个地方：
+
+| 优先级 | 模块                    | 为什么重要                                   |
+| ------ | ----------------------- | -------------------------------------------- |
+| ★★★    | `container.go`          | 框架总入口，所有节点的生命周期从这里启动     |
+| ★★★    | `cluster/gate/gate.go`  | Gate 节点核心，客户端连接管理的起点          |
+| ★★★    | `cluster/node/node.go`  | Node 节点核心，业务路由分发的起点            |
+| ★★★    | `cluster/node/proxy.go` | 业务代码唯一合法入口，Proxy 暴露所有对外 API |
+| ★★☆    | `internal/transporter/` | Gate↔Node 内部通信，消息流转的关键路径       |
+| ★★☆    | `internal/link/`        | UID 路由表，决定消息往哪个 Gate/Node 发      |
+| ★★☆    | `session/session.go`    | Gate 内连接管理，Push/Broadcast 的底层依赖   |
+| ★★☆    | `packet/`               | 协议编解码，客户端收发消息的格式定义         |
+| ★☆☆    | `network/`              | 网络层接口，一般只在新增协议支持时改动       |
+| ★☆☆    | `transport/`            | RPC 层接口，一般只在新增 RPC 方案时改动      |
+
+> **原则**：业务逻辑只通过 `node.Proxy` / `gate.Proxy` 交互；`internal/` 下的代码是框架私有实现，不对外暴露。
+
+## 3.优势
 
 * 💰 免费性：框架遵循MIT协议，完全开源免费。
 * 💡 简单性：架构简单，源码简洁易理解。
@@ -81,7 +121,7 @@ Mesh Handler
 * 🔧 易调试：框架原生提供了tcp、kcp、ws等客户端，方便开发者进行独立的调试全流程调试。
 * 🧰 可管理：提供完善的后台管理接口，方便开发者快速实现自定义的后台管理功能。
 
-### 3.功能
+## 4.功能
 
 * 网关：支持tcp、kcp、ws等协议的网关服务器。
 * 日志：支持console、file、aliyun、tencent等多种日志组件。
@@ -100,11 +140,11 @@ Mesh Handler
 * Actor：提供完善actor模型解决方案。
 * 分布式锁：支持redis、memcache等多种分布式锁解决方案。
 
-### 4.下一期新功能规划
+## 5.下一期新功能规划
 
 * 分布式任务调度系统
 
-### 5.特殊说明
+## 6.特殊说明
 
 > 在due交流群中经常有小伙伴提及到Gate、Node、Mesh之间到底是个什么关系，这里就做一个统一的解答
 
@@ -112,7 +152,7 @@ Mesh Handler
 * Node: 节点服，作为整个集群系统的核心组件，主要用于核心逻辑业务的编写。Node节点服务可以根据业务需要做成有状态或无状态的节点，当作为无状态的节点时，Node节点与Mesh微服务基本无异；但当Node节点作为有状态节点时，Node节点便不能随意更新进行重启操作。故而Node与Mesh分离的业务场景的价值就体现出来了。
 * Mesh：微服务，主要用于无状态的业务逻辑编写。Mesh能做的功能Node一样可以完成，如何选择完全取决于自身业务场景，开发者可以根据自身业务场景灵活搭配。
 
-### 6.通信协议
+## 7.通信协议
 
 在due框架中，通信协议统一采用size+header+route+seq+message的格式：
 
@@ -184,7 +224,45 @@ heartbeat time: 8 bytes
 - 上行心跳包无需携带心跳数据，下行心跳包默认携带8 bytes的服务器时间（ns），可通过网络库配置进行设置是否携带下行包时间信息
 - 此参数由网络框架层自动打包，服务端开发者不关注此参数，客户端开发者需关注此参数
 
-### 7.相关工具链
+## 8.相关工具链
+
+### 本地环境准备（macOS）
+
+本项目要求 Go 1.25+，推荐使用 [asdf](https://asdf-vm.com/) 管理多版本，并通过 [direnv](https://direnv.net/) 实现项目级环境隔离。
+
+**安装 asdf 并添加 Go 1.25：**
+
+```shell
+# 安装 asdf（参考 https://asdf-vm.com/guide/getting-started.html）
+asdf plugin add golang
+asdf install golang 1.25.3
+```
+
+**安装 direnv 并挂载 hook：**
+
+```shell
+brew install direnv
+echo '\neval "$(direnv hook zsh)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**在项目目录创建 .envrc，覆盖 GOROOT/GOPATH 至 1.25.3：**
+
+```shell
+# .envrc（项目根目录，已加入 .gitignore）
+export GOROOT=/Users/napo/.asdf/installs/golang/1.25.3/go
+export GOPATH=/Users/napo/.asdf/installs/golang/1.25.3/packages
+export PATH=$GOROOT/bin:$GOPATH/bin:$PATH
+```
+
+```shell
+# 授权 direnv 加载（创建或修改 .envrc 后执行一次）
+direnv allow
+```
+
+之后 `cd` 进入项目目录，环境变量自动生效；离开后自动还原，不影响全局 Go 版本。
+
+---
 
 1.安装protobuf编译器（使用场景：开发mesh微服务）
 
@@ -234,7 +312,7 @@ go install github.com/dobyte/gorm-dao-generator@latest
 go install github.com/dobyte/mongo-dao-generator@latest
 ```
 
-### 8.配置中心
+## 9.配置中心
 
 1.功能介绍
 
@@ -247,7 +325,7 @@ go install github.com/dobyte/mongo-dao-generator@latest
 * [consul](config/consul/README-ZH.md)
 * [nacos](config/nacos/README-ZH.md)
 
-### 9.注册中心
+## 10.注册中心
 
 1.功能介绍
 
@@ -259,7 +337,7 @@ go install github.com/dobyte/mongo-dao-generator@latest
 * [consul](registry/consul/README-ZH.md)
 * [nacos](registry/nacos/README-ZH.md)
 
-### 10.网络模块
+## 11.网络模块
 
 1.功能介绍
 
@@ -272,7 +350,19 @@ go install github.com/dobyte/mongo-dao-generator@latest
 * [ws](network/ws/README-ZH.md)
 
 
-### 11.快速开始
+## 12.快速开始
+
+> **说明（框架源码开发者必读）**
+>
+> 本章节是面向**业务项目开发者**的使用示例，展示如何在自己的项目中引入并使用 due 框架。
+>
+> **为什么要看这些代码？**
+> 阅读这些示例可以帮助你理解框架对外暴露的 API 长什么样、业务开发者会怎么用你写的代码，从而在开发框架功能时知道自己的改动会影响哪些地方。
+>
+> **在本仓库中不需要自己动手写这些代码。** 对应的框架实现入口分别是：
+> - Gate：`cluster/gate/gate.go`
+> - Node：`cluster/node/node.go`
+> - Client：`cluster/client/client.go`
 
 下面我们就通过两段简单的代码来体验一下due的魅力，Let's go~~
 
@@ -298,6 +388,8 @@ infra-ps
 
 2.获取框架
 
+> **注意**：以下命令适用于**业务项目**引入 due 框架时使用。如果你正在本仓库（框架源码）中开发，无需执行。
+
 ```shell
 go get -u github.com/dobyte/due/v2@latest
 go get -u github.com/dobyte/due/locate/redis/v2@latest
@@ -307,6 +399,8 @@ go get -u github.com/dobyte/due/transport/rpcx/v2@latest
 ```
 
 3.构建Gate服务器
+
+> 框架源码位置：`cluster/gate/`
 
 ```go
 package main
@@ -368,6 +462,8 @@ $ go run main.go
 ```
 
 5.构建Node服务器
+
+> 框架源码位置：`cluster/node/`
 
 ```go
 package main
@@ -469,6 +565,8 @@ $ go run main.go
 ```
 
 7.构建测试客户端
+
+> 框架源码位置：`cluster/client/`
 
 ```go
 package main
@@ -602,24 +700,24 @@ INFO[2024/07/03 14:53:12.991217] main.go:72 [I'm server, and the current time is
 INFO[2024/07/03 14:53:13.995049] main.go:72 [I'm server, and the current time is: 2024-07-03 14:53:13]
 ```
 
-### 12.二次开发指南
+## 13.二次开发指南
 
-#### 扩展点总览
+### 扩展点总览
 
 due 所有核心模块均以接口形式对外暴露，替换任意一层只需实现对应接口并在组件初始化时注入：
 
-| 扩展点 | 接口定义文件 | 注入方式 |
-|--------|-------------|----------|
-| 网络协议（tcp/kcp/ws） | `network/server.go` | `gate.WithServer()` |
-| 服务注册中心 | `registry/registry.go` | `gate.WithRegistry()` / `node.WithRegistry()` |
-| 用户位置追踪 | `locate/locator.go` | `gate.WithLocator()` / `node.WithLocator()` |
-| 节点间 RPC | `transport/transporter.go` | `node.WithTransporter()` / `mesh.WithTransporter()` |
-| 事件总线 | `eventbus/eventbus.go` | `eventbus.SetEventbus()` |
-| 动态配置 | `config/config.go` | `config.SetConfigurator()` |
-| 分布式锁 | `lock/lock.go` | `lock.SetLocker()` |
-| 缓存 | `cache/cache.go` | `cache.SetCacher()` |
+| 扩展点                 | 接口定义文件               | 注入方式                                            |
+| ---------------------- | -------------------------- | --------------------------------------------------- |
+| 网络协议（tcp/kcp/ws） | `network/server.go`        | `gate.WithServer()`                                 |
+| 服务注册中心           | `registry/registry.go`     | `gate.WithRegistry()` / `node.WithRegistry()`       |
+| 用户位置追踪           | `locate/locator.go`        | `gate.WithLocator()` / `node.WithLocator()`         |
+| 节点间 RPC             | `transport/transporter.go` | `node.WithTransporter()` / `mesh.WithTransporter()` |
+| 事件总线               | `eventbus/eventbus.go`     | `eventbus.SetEventbus()`                            |
+| 动态配置               | `config/config.go`         | `config.SetConfigurator()`                          |
+| 分布式锁               | `lock/lock.go`             | `lock.SetLocker()`                                  |
+| 缓存                   | `cache/cache.go`           | `cache.SetCacher()`                                 |
 
-#### 场景一：新增路由 Handler（最常见）
+### 场景一：新增路由 Handler（最常见）
 
 所有业务逻辑写在 Node 的 RouteHandler 里，第三个参数 `stateful` 控制是否要求已绑定 UID：
 
@@ -654,7 +752,7 @@ func loginHandler(ctx node.Context) {
 }
 ```
 
-#### 场景二：使用 Actor 隔离有状态逻辑
+### 场景二：使用 Actor 隔离有状态逻辑
 
 适合房间、战斗场景等需要独立状态的单元，Actor 内部消息串行处理，无需加锁：
 
@@ -671,7 +769,7 @@ func (r *RoomActor) Destroy() {}
 proxy.Actor().Create(ctx, &RoomActor{})
 ```
 
-#### 场景三：Node 推送消息给客户端
+### 场景三：Node 推送消息给客户端
 
 Node 不直接持有连接，必须经 GateLinker → Gate → session → Conn 路径：
 
@@ -689,7 +787,7 @@ proxy.Broadcast(ctx, &node.BroadcastArgs{
 })
 ```
 
-#### 场景四：跨节点事件通知
+### 场景四：跨节点事件通知
 
 玩家上下线、全服公告等无需返回值的广播，用 eventbus 而不是 RPC：
 
@@ -704,7 +802,7 @@ eventbus.Subscribe(ctx, "player.online", func(event *eventbus.Event) {
 })
 ```
 
-#### 场景五：实现自定义注册中心
+### 场景五：实现自定义注册中心
 
 ```go
 // 实现 registry.Registry 接口（registry/registry.go）
@@ -719,14 +817,14 @@ func (r *MyRegistry) Services(ctx context.Context, name string) ([]*registry.Ser
 gate.WithRegistry(&MyRegistry{})
 ```
 
-#### 二次开发原则
+### 二次开发原则
 
 1. **只动 Proxy，不动内部** — 业务代码只通过 `gate.Proxy` / `node.Proxy` 交互，不直接访问 session、linker 等内部结构。
 2. **接口替换，不 fork 核心** — 换注册中心、换网络层，实现接口注入即可，不要修改框架核心文件。
 3. **路由常量集中管理** — 所有路由号放在一个包里统一定义，客户端和服务端共用同一份。
 4. **有状态用 Actor，无状态用 Mesh** — 避免在普通 Handler 里用全局锁保护共享状态。
 
-### 13.压力测试
+## 14.压力测试
 1.压测机器
 
 ```text
@@ -824,7 +922,7 @@ throughput (TPS)     : 159147
 
 本测试结果仅供参考，详细测试用例代码请查看[due-benchmark](https://github.com/dobyte/due-benchmark)
 
-### 14.其他组件
+## 15.其他组件
 
 1. 日志组件
     * zap: github.com/dobyte/due/log/zap/v2
@@ -861,18 +959,18 @@ throughput (TPS)     : 159147
     * redis: github.com/dobyte/due/lock/redis/v2
     * memcache: github.com/dobyte/due/lock/memcache/v2
 
-### 15.其他客户端
+## 16.其他客户端
 
 * [due-client-ts](https://github.com/dobyte/due-client-ts)
 * [due-client-shape](https://github.com/dobyte/due-client-shape)
 
-### 16.详细示例
+## 17.详细示例
 
 - [due-examples](https://github.com/dobyte/due-examples)
 - [due-chat](https://github.com/dobyte/due-chat)
 - [due-doudizhu-server](https://github.com/dobyte/due-doudizhu-desc) 高性能分布式游戏服务器商业实战案例-斗地主服务器 (付费项目，购买请联系框架作者)
 
-### 17.三方示例
+## 18.三方示例
 
 <ul>
    <li style="line-height:30px;padding: 5px 0;">
@@ -893,7 +991,7 @@ throughput (TPS)     : 159147
    </li>
 </ul>
 
-### 18.常见问题
+## 19.常见问题
 
 1. 框架主模块与子模块版本不一致的问题
 
@@ -915,7 +1013,7 @@ throughput (TPS)     : 159147
    3.至此，问题解决。
 
 
-### 19.交流与讨论
+## 20.交流与讨论
 
 <img title="" src="group_qrcode.jpeg" alt="交流群" width="175"><img title="" src="personal_qrcode.jpeg" alt="个人二维码" width="177">
 
