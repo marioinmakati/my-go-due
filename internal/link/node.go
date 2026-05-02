@@ -78,6 +78,8 @@ func (l *NodeLinker) AskNode(ctx context.Context, uid int64, name, nid string) (
 }
 
 // LocateNode 定位用户所在节点
+// 2-5 两级查找：先查本地内存缓存（sources map），未命中再查 locator（Redis）
+// name 是 Node 注册时的服务名，一个 UID 可绑定多个不同名的 Node
 func (l *NodeLinker) LocateNode(ctx context.Context, uid int64, name string) (string, error) {
 	if l.opts.Locator == nil {
 		return "", errors.ErrNotFoundLocator
@@ -172,6 +174,9 @@ func (l *NodeLinker) FetchNodeList(ctx context.Context, states ...cluster.State)
 }
 
 // Deliver 投递消息给节点处理
+// 2-3 调用链：gate.proxy.deliver() → 此处
+// NID 非空：直接投递到指定节点（Node 间转发场景）
+// NID 为空：通过 doRPC 按 route 查找目标 Node（有状态路由走 LocateNode，无状态走负载均衡）
 func (l *NodeLinker) Deliver(ctx context.Context, args *DeliverArgs) error {
 	var (
 		err       error
@@ -266,6 +271,10 @@ func (l *NodeLinker) SetState(ctx context.Context, nid string, state cluster.Sta
 }
 
 // 执行节点RPC调用
+// 2-3/2-6 核心路由逻辑：
+// 有状态路由：先 LocateNode(uid, group) 找到绑定的 nid，再取 endpoint 建连
+// 无状态路由：直接从 dispatcher 负载均衡选一个 endpoint
+// fn 返回 continued=true 表示目标 Node 已失效，清除缓存后重试一次
 func (l *NodeLinker) doRPC(ctx context.Context, routeID int32, uid int64, fn func(ctx context.Context, client *node.Client) (bool, any, error)) (any, error) {
 	var (
 		err       error

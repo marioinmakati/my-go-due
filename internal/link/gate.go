@@ -66,6 +66,8 @@ func (l *GateLinker) AskGate(ctx context.Context, gid string, uid int64) (string
 }
 
 // LocateGate 定位用户所在网关
+// 2-4/2-5 两级查找：先查本地 sync.Map 缓存，未命中再查 locator（Redis）
+// 与 NodeLinker.LocateNode 的区别：Gate 用 sync.Map（并发写少），Node 用 RWMutex map（写多）
 func (l *GateLinker) LocateGate(ctx context.Context, uid int64) (string, error) {
 	if l.opts.Locator == nil {
 		return "", errors.ErrNotFoundLocator
@@ -326,6 +328,8 @@ func (l *GateLinker) doIndirectDisconnect(ctx context.Context, uid int64, force 
 }
 
 // Push 推送消息
+// 2-4 入口：node.Proxy.Push() → gateLinker.Push() → 此处
+// 单播复用 Multicast 实现（targets 只有一个元素），统一走 doRPC 定位 GID
 func (l *GateLinker) Push(ctx context.Context, args *PushArgs) error {
 	_, err := l.Multicast(ctx, &cluster.MulticastArgs{
 		GID:     args.GID,

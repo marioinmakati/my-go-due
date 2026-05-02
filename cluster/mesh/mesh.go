@@ -128,6 +128,8 @@ func (m *Mesh) Proxy() *Proxy {
 }
 
 // 启动传输服务器
+// 2-6 入口：Mesh.Start() 调用此处，通过 transport.Transporter 创建并启动 gRPC/rpcx 服务端
+// 所有通过 proxy.AddServiceProvider() 注册的 service 在此批量注册到 transporter
 func (m *Mesh) startTransportServer() {
 	m.opts.transporter.SetDefaultDiscovery(m.opts.registry)
 

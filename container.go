@@ -42,23 +42,31 @@ func (c *Container) Add(components ...component.Component) {
 }
 
 // Serve 启动容器
+// 生命周期入口：Init → Start → [等待信号] → Close → Destroy → ClearModules
+// once=true 时跳过信号等待，执行一次后立即关闭（用于测试）
 func (c *Container) Serve(once ...bool) {
 	c.doSaveProcessID()
 
 	c.doPrintFrameworkInfo()
 
+	// 顺序初始化：按 Add() 顺序执行，保证有依赖关系的组件按预期顺序启动
 	c.doInitComponents()
 
+	// 顺序启动：同上，顺序保证
 	c.doStartComponents()
 
 	if len(once) == 0 || !once[0] {
+		// 阻塞直到收到 SIGINT/SIGTERM 等信号
 		c.doWaitSystemSignal()
 	}
 
+	// 并发关闭：各组件互相独立，并发可加快退出速度；超时由 etc.shutdownMaxWaitTime 控制
 	c.doCloseComponents()
 
+	// 并发销毁：固定 5s 超时，超时后不再等待（goroutine 仍在运行，只是不等了）
 	c.doDestroyComponents()
 
+	// 顺序清理全局模块（eventbus/lock/cache/task/config/etc/log）
 	c.doClearModules()
 }
 

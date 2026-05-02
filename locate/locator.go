@@ -11,6 +11,9 @@ import (
 	"context"
 )
 
+// Locator 用户位置追踪接口
+// 2-5 职责边界：registry 追踪"服务实例在哪"，Locator 追踪"用户在哪个服务实例上"
+// 实现通常使用 Redis，以 uid 为 key 存储其当前所在的 gid 和各 name→nid 映射
 type Locator interface {
 	// Name 获取定位器组件名
 	Name() string
@@ -26,7 +29,7 @@ type Locator interface {
 	UnbindNode(ctx context.Context, uid int64, name string, nid string) error
 	// LocateGate 定位用户所在网关
 	LocateGate(ctx context.Context, uid int64) (string, error)
-	// LocateNode 定位用户所在节点
+	// LocateNode 定位用户所在节点（name 为 Node 注册的服务名，一个 uid 可绑多个不同名的 Node）
 	LocateNode(ctx context.Context, uid int64, name string) (string, error)
 	// LocateNodes 定位用户所在节点列表
 	LocateNodes(ctx context.Context, uid int64) (map[string]string, error)

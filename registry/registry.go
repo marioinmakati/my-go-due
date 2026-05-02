@@ -4,6 +4,9 @@ import (
 	"context"
 )
 
+// Registry 服务注册与发现接口
+// 2-5 职责边界：管理"哪些服务实例正在运行及其 Endpoint"，与 Locator（管理"用户在哪个实例"）互补
+// Node 注册时携带 Routes 字段，dispatcher 据此构建路由表；Gate 注册时不携带 Routes
 type Registry interface {
 	// Name 获取服务注册发现组件名
 	Name() string

@@ -142,6 +142,8 @@ func (s *Server) disconnect(conn *server.Conn, data []byte) error {
 }
 
 // 推送单个消息
+// 2-4 调用链：gate.Client.Push() 通过内部协议发送后，Gate 侧此方法接收并转交 provider.Push()
+// provider.Push() 最终调用 session.Push() → conn.Push() → taskQueue → net.Conn.Write()
 func (s *Server) push(conn *server.Conn, data []byte) error {
 	seq, kind, target, disconnect, message, err := protocol.DecodePushReq(data)
 	if err != nil {

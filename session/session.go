@@ -45,6 +45,8 @@ func NewSession() *Session {
 }
 
 // AddConn 添加连接
+// 2-2 调用链：gate.handleConnect() → 此处
+// 新连接必然有 CID，UID 为 0（未登录），登录后通过 Bind() 补充 users 映射
 func (s *Session) AddConn(conn network.Conn) {
 	s.rw.Lock()
 	defer s.rw.Unlock()
@@ -96,6 +98,8 @@ func (s *Session) Has(kind Kind, target int64) (ok bool, err error) {
 }
 
 // Bind 绑定用户ID
+// 2-2 调用链：用户登录后业务层调用 Proxy.Bind(cid, uid)，最终调用此处
+// 若同一 UID 已有旧连接，先踢掉旧连接（oldConn.Unbind），再建立新映射（防止多端重复登录覆盖脏数据）
 func (s *Session) Bind(cid, uid int64) error {
 	s.rw.Lock()
 	defer s.rw.Unlock()
@@ -217,6 +221,8 @@ func (s *Session) Send(kind Kind, target int64, message []byte) error {
 }
 
 // Push 推送消息（异步）
+// 2-4 调用链：transporter/gate/server.push() → gate.provider.Push() → 此处
+// disconnect=true 时推送后立即关闭连接（用于踢人、强制下线）
 func (s *Session) Push(kind Kind, target int64, disconnect bool, message []byte) error {
 	s.rw.RLock()
 	conn, err := s.conn(kind, target)

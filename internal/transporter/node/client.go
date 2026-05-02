@@ -28,6 +28,8 @@ func (c *Client) Trigger(ctx context.Context, event cluster.Event, cid, uid int6
 }
 
 // Deliver 投递消息
+// 2-3 调用链：NodeLinker.Deliver() → 此处
+// seq=0（fire-and-forget），用 cid 做分片路由保证同一连接的消息有序
 func (c *Client) Deliver(ctx context.Context, cid, uid int64, buf buffer.Buffer) error {
 	return c.cli.Send(ctx, protocol.EncodeDeliverReq(0, cid, uid, buf), cid)
 }

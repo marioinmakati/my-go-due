@@ -29,6 +29,9 @@ type Client interface {
 	Client() any
 }
 
+// Transporter Node/Mesh 间公开 RPC 传输层接口
+// 2-6 职责边界：此层（transport/）用于 Node↔Mesh 的业务 RPC（gRPC/rpcx）；
+// internal/transporter/ 用于 Gate↔Node 的内部协议，两者完全独立
 type Transporter interface {
 	// Name 获取传输器组件名
 	Name() string

@@ -139,6 +139,9 @@ func (c *Client) Disconnect(ctx context.Context, kind session.Kind, target int64
 }
 
 // Push 推送消息
+// 2-4 调用链：gateLinker.doPush() → 此处 → 内部协议发送给 Gate
+// ack=true：有序列号，等待 Gate 回包确认（可靠推送）
+// ack=false：seq=0，fire-and-forget，用 target 做分片路由（高吞吐场景）
 func (c *Client) Push(ctx context.Context, kind session.Kind, target int64, disconnect bool, message buffer.Buffer, ack bool) error {
 	if ack {
 		seq := c.doGenSequence()

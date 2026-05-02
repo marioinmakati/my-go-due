@@ -34,6 +34,8 @@ func newProxy(gate *Gate) *proxy {
 }
 
 // 绑定用户与网关间的关系
+// 2-5 调用链：用户登录后业务层调用 Proxy.Bind()，最终走到此处将 uid→gateID 写入 locator（Redis）
+// 绑定后触发 Reconnect 事件，通知 Node 该用户已上线
 func (p *proxy) bindGate(ctx context.Context, cid, uid int64) error {
 	err := p.gate.opts.locator.BindGate(ctx, uid, p.gate.opts.id)
 	if err != nil {
@@ -76,6 +78,8 @@ func (p *proxy) trigger(ctx context.Context, event cluster.Event, cid, uid int64
 }
 
 // 投递消息
+// 2-3 调用链：gate.handleReceive() → 此处
+// 先用 packet.UnpackMessage 解析出 route（不解析 body），再通过 nodeLinker.Deliver 路由到目标 Node
 func (p *proxy) deliver(ctx context.Context, cid, uid int64, data []byte) {
 	message, err := packet.UnpackMessage(data)
 	if err != nil {
@@ -87,7 +91,7 @@ func (p *proxy) deliver(ctx context.Context, cid, uid int64, data []byte) {
 		CID:    cid,
 		UID:    uid,
 		Route:  message.Route,
-		Buffer: data,
+		Buffer: data, // 原始字节整包透传给 Node，Node 侧再解包 body
 	}); err != nil {
 		switch {
 		case errors.Is(err, errors.ErrNotFoundRoute), errors.Is(err, errors.ErrNotFoundEndpoint):

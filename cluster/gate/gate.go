@@ -125,6 +125,7 @@ func (g *Gate) Destroy() {
 }
 
 // 启动网络服务器
+// 2-2 入口：注册三个回调（connect/disconnect/receive），再调用 network.Server.Start()
 func (g *Gate) startNetworkServer() {
 	g.opts.server.OnConnect(g.handleConnect)
 	g.opts.server.OnDisconnect(g.handleDisconnect)
@@ -143,9 +144,12 @@ func (g *Gate) stopNetworkServer() {
 }
 
 // 处理连接打开
+// 2-2 调用链：network.Conn 建立后由 connMgr 回调此处
+// wg.Add(1) 对应 handleDisconnect 的 wg.Done()，用于 Close() 阶段等待所有连接处理完毕
 func (g *Gate) handleConnect(conn network.Conn) {
 	g.wg.Add(1)
 
+	// 将 conn 注册到 session，CID 立即可用，UID 此时为 0（登录后才绑定）
 	g.session.AddConn(conn)
 
 	cid, uid := conn.ID(), conn.UID()
@@ -171,6 +175,7 @@ func (g *Gate) handleDisconnect(conn network.Conn) {
 }
 
 // 处理接收到的消息
+// 2-3 入口：network 层收到字节流后回调此处，转交 proxy.deliver() 进行上行路由
 func (g *Gate) handleReceive(conn network.Conn, data []byte) {
 	cid, uid := conn.ID(), conn.UID()
 
@@ -204,6 +209,8 @@ func (g *Gate) stopLinkerServer() {
 }
 
 // 注册服务实例
+// 2-5 入口：Gate 启动后将自身（ID/Name/Endpoint）写入 registry，供 Node 通过服务发现找到本 Gate
+// Endpoint 是 linker（内部传输服务）的地址，不是面向客户端的网络地址
 func (g *Gate) registerServiceInstance() {
 	g.instance = &registry.ServiceInstance{
 		ID:       g.opts.id,

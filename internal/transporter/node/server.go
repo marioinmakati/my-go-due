@@ -60,6 +60,9 @@ func (s *Server) trigger(conn *server.Conn, data []byte) error {
 }
 
 // 投递消息
+// 2-3 调用链：node.Client.Deliver() 通过内部协议发送后，Node 侧此方法接收并转交 provider.Deliver()
+// 来自 Gate（gid 有值）或来自另一个 Node（nid 有值），两者走不同的处理分支
+// seq=0 表示 fire-and-forget（不需要回包），否则发送结果响应
 func (s *Server) deliver(conn *server.Conn, data []byte) error {
 	seq, cid, uid, message, err := protocol.DecodeDeliverReq(data)
 	if err != nil {

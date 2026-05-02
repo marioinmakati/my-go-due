@@ -138,6 +138,9 @@ func (r *Router) Group(groups ...func(group *RouterGroup)) *RouterGroup {
 	return group
 }
 
+// deliver 将消息封装为 request 投入 reqChan
+// 2-3 调用链：node.provider.Deliver() → 此处
+// 使用 sync.Pool 复用 request 对象减少 GC 压力；reqChan 是缓冲 channel（容量 10240），异步解耦收包与处理
 func (r *Router) deliver(gid, nid, pid string, cid, uid int64, seq, route int32, data any) {
 	req := r.node.reqPool.Get().(*request)
 	req.ctx = context.Background()
@@ -160,6 +163,9 @@ func (r *Router) close() {
 	close(r.reqChan)
 }
 
+// handle 从 reqChan 取出 request 后执行对应 RouteHandler
+// 2-3 终点：Node 主循环（node.go）从 router.receive() 读出请求，调用此方法
+// version 机制防止 handler 执行期间 req 被并发回收（Actor 场景下 req 生命周期可能跨 goroutine）
 func (r *Router) handle(req *request) {
 	version := req.incrVersion()
 

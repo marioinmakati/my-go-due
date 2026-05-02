@@ -41,6 +41,7 @@ func (s *server) Addr() string {
 }
 
 // Start 启动服务器
+// 2-2 入口：Gate.startNetworkServer() 调用此方法，完成后 serve() 在独立 goroutine 中持续 Accept
 func (s *server) Start() error {
 	if err := s.init(); err != nil {
 		return err
@@ -128,6 +129,8 @@ func (s *server) init() error {
 }
 
 // 等待连接
+// Accept 循环：超时错误用指数退避重试（5ms→1s），其他错误（如 listener 已关闭）直接退出
+// 新连接交给 connMgr.allocate()，分配 CID 并触发 connectHandler → gate.handleConnect
 func (s *server) serve() {
 	var tempDelay time.Duration
 
