@@ -70,7 +70,18 @@ Mesh Handler
 | `lock`      | 分布式锁（redis/memcache）                         |
 | `cache`     | 分布式缓存（redis/memcache）                       |
 
-## 2.目录结构
+## 2.项目规模
+
+| 指标 | 数量 |
+|------|------|
+| Go 源文件 | 410 个 |
+| 代码总行数 | 49,188 行 |
+| 其中业务代码 | 43,346 行 |
+| 其中测试代码 | 5,842 行 |
+| 子模块（go.mod） | 25 个 |
+| 包目录 | 112 个 |
+
+## 3.目录结构
 
 ```
 my-go-due/
@@ -126,7 +137,7 @@ my-go-due/
 
 > **原则**：业务逻辑只通过 `node.Proxy` / `gate.Proxy` 交互；`internal/` 下的代码是框架私有实现，不对外暴露。
 
-## 3.优势
+## 4.优势
 
 * 💰 免费性：框架遵循MIT协议，完全开源免费。
 * 💡 简单性：架构简单，源码简洁易理解。
@@ -141,7 +152,7 @@ my-go-due/
 * 🔧 易调试：框架原生提供了tcp、kcp、ws等客户端，方便开发者进行独立的调试全流程调试。
 * 🧰 可管理：提供完善的后台管理接口，方便开发者快速实现自定义的后台管理功能。
 
-## 4.功能
+## 5.功能
 
 * 网关：支持tcp、kcp、ws等协议的网关服务器。
 * 日志：支持console、file、aliyun、tencent等多种日志组件。
@@ -160,11 +171,11 @@ my-go-due/
 * Actor：提供完善actor模型解决方案。
 * 分布式锁：支持redis、memcache等多种分布式锁解决方案。
 
-## 5.下一期新功能规划
+## 6.下一期新功能规划
 
 * 分布式任务调度系统
 
-## 6.特殊说明
+## 7.特殊说明
 
 > 在due交流群中经常有小伙伴提及到Gate、Node、Mesh之间到底是个什么关系，这里就做一个统一的解答
 
@@ -172,7 +183,7 @@ my-go-due/
 * Node: 节点服，作为整个集群系统的核心组件，主要用于核心逻辑业务的编写。Node节点服务可以根据业务需要做成有状态或无状态的节点，当作为无状态的节点时，Node节点与Mesh微服务基本无异；但当Node节点作为有状态节点时，Node节点便不能随意更新进行重启操作。故而Node与Mesh分离的业务场景的价值就体现出来了。
 * Mesh：微服务，主要用于无状态的业务逻辑编写。Mesh能做的功能Node一样可以完成，如何选择完全取决于自身业务场景，开发者可以根据自身业务场景灵活搭配。
 
-## 7.通信协议
+## 8.通信协议
 
 在due框架中，通信协议统一采用size+header+route+seq+message的格式：
 
@@ -244,7 +255,7 @@ heartbeat time: 8 bytes
 - 上行心跳包无需携带心跳数据，下行心跳包默认携带8 bytes的服务器时间（ns），可通过网络库配置进行设置是否携带下行包时间信息
 - 此参数由网络框架层自动打包，服务端开发者不关注此参数，客户端开发者需关注此参数
 
-## 8.相关工具链
+## 9.相关工具链
 
 ### 本地环境准备（macOS）
 
@@ -332,7 +343,7 @@ go install github.com/dobyte/gorm-dao-generator@latest
 go install github.com/dobyte/mongo-dao-generator@latest
 ```
 
-## 9.配置中心
+## 10.配置中心
 
 1.功能介绍
 
@@ -345,7 +356,7 @@ go install github.com/dobyte/mongo-dao-generator@latest
 * [consul](config/consul/README-ZH.md)
 * [nacos](config/nacos/README-ZH.md)
 
-## 10.注册中心
+## 11.注册中心
 
 1.功能介绍
 
@@ -357,7 +368,7 @@ go install github.com/dobyte/mongo-dao-generator@latest
 * [consul](registry/consul/README-ZH.md)
 * [nacos](registry/nacos/README-ZH.md)
 
-## 11.网络模块
+## 12.网络模块
 
 1.功能介绍
 
@@ -370,7 +381,7 @@ go install github.com/dobyte/mongo-dao-generator@latest
 * [ws](network/ws/README-ZH.md)
 
 
-## 12.快速开始
+## 13.快速开始
 
 > **说明（框架源码开发者必读）**
 >
@@ -720,7 +731,7 @@ INFO[2024/07/03 14:53:12.991217] main.go:72 [I'm server, and the current time is
 INFO[2024/07/03 14:53:13.995049] main.go:72 [I'm server, and the current time is: 2024-07-03 14:53:13]
 ```
 
-## 13.二次开发指南
+## 14.二次开发指南
 
 ### 扩展点总览
 
@@ -844,7 +855,7 @@ gate.WithRegistry(&MyRegistry{})
 3. **路由常量集中管理** — 所有路由号放在一个包里统一定义，客户端和服务端共用同一份。
 4. **有状态用 Actor，无状态用 Mesh** — 避免在普通 Handler 里用全局锁保护共享状态。
 
-## 14.压力测试
+## 15.压力测试
 1.压测机器
 
 ```text
@@ -942,7 +953,7 @@ throughput (TPS)     : 159147
 
 本测试结果仅供参考，详细测试用例代码请查看[due-benchmark](https://github.com/dobyte/due-benchmark)
 
-## 15.其他组件
+## 16.其他组件
 
 1. 日志组件
     * zap: github.com/dobyte/due/log/zap/v2
@@ -979,18 +990,18 @@ throughput (TPS)     : 159147
     * redis: github.com/dobyte/due/lock/redis/v2
     * memcache: github.com/dobyte/due/lock/memcache/v2
 
-## 16.其他客户端
+## 17.其他客户端
 
 * [due-client-ts](https://github.com/dobyte/due-client-ts)
 * [due-client-shape](https://github.com/dobyte/due-client-shape)
 
-## 17.详细示例
+## 18.详细示例
 
 - [due-examples](https://github.com/dobyte/due-examples)
 - [due-chat](https://github.com/dobyte/due-chat)
 - [due-doudizhu-server](https://github.com/dobyte/due-doudizhu-desc) 高性能分布式游戏服务器商业实战案例-斗地主服务器 (付费项目，购买请联系框架作者)
 
-## 18.三方示例
+## 19.三方示例
 
 <ul>
    <li style="line-height:30px;padding: 5px 0;">
@@ -1011,7 +1022,7 @@ throughput (TPS)     : 159147
    </li>
 </ul>
 
-## 19.常见问题
+## 20.常见问题
 
 1. 框架主模块与子模块版本不一致的问题
 
@@ -1033,7 +1044,7 @@ throughput (TPS)     : 159147
    3.至此，问题解决。
 
 
-## 20.交流与讨论
+## 21.交流与讨论
 
 <img title="" src="group_qrcode.jpeg" alt="交流群" width="175"><img title="" src="personal_qrcode.jpeg" alt="个人二维码" width="177">
 
