@@ -8,6 +8,8 @@ Read `LEARNING.md` at the beginning of every session. It tracks the current lear
 
 > Note: This repository is currently used for **source code study only**, not active development. Prioritize explanation and tracing over code modification.
 
+> **Do NOT proactively suggest or start Step 4 (hands-on exercises) or Step 5 (secondary development goals) unless the user explicitly asks.**
+
 ## Commands
 
 ```bash
