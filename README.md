@@ -24,6 +24,48 @@
 
 ![架构图](architecture.jpg)
 
+#### 框架核心概念
+
+due 围绕**容器 + 组件**的模型运转，所有节点类型都实现 `component.Component` 接口，由 `Container` 统一管理生命周期（Init → Start → Close → Destroy）。
+
+**四种节点角色：**
+
+| 角色 | 包路径 | 职责 |
+|------|--------|------|
+| Gate | `cluster/gate` | 管理客户端连接（TCP/KCP/WS），接收数据包并路由到 Node |
+| Node | `cluster/node` | 核心业务逻辑；可有状态（绑定 UID）或无状态 |
+| Mesh | `cluster/mesh` | 无状态微服务，Node 通过 RPC 调用 |
+| Client | `cluster/client` | 内置测试/调试客户端，直连 Gate |
+
+**一条消息的完整生命周期：**
+
+```
+客户端
+  ↓ TCP/KCP/WS
+Gate (network.Server → network.Conn → session.Session)
+  ↓ internal/transporter（Gate↔Node 内部协议）
+Node (Router → RouteHandler)
+  ↓ transport.Client（可选，Node→Mesh RPC）
+Mesh Handler
+  ↓ node.Proxy.Push → GateLinker → Gate → session → Conn
+客户端（下行推送）
+```
+
+**各模块职责速查：**
+
+| 模块 | 职责 |
+|------|------|
+| `packet` | 客户端通信协议编解码（size+header+route+seq+data） |
+| `session` | Gate 内 CID/UID 双索引连接管理 + 频道订阅 |
+| `registry` | 服务实例注册与发现（consul/etcd/nacos） |
+| `locate` | 追踪 UID 当前所在的 GateID 和 NodeID（Redis） |
+| `transport` | Node↔Mesh 公开 RPC 层（gRPC/rpcx） |
+| `eventbus` | 跨节点异步事件广播（redis/nats/kafka） |
+| `config` | 运行时动态配置热更新 |
+| `etc` | 启动时一次性静态配置 |
+| `lock` | 分布式锁（redis/memcache） |
+| `cache` | 分布式缓存（redis/memcache） |
+
 ### 2.优势
 
 * 💰 免费性：框架遵循MIT协议，完全开源免费。
@@ -236,11 +278,23 @@ go install github.com/dobyte/mongo-dao-generator@latest
 
 1.启动组件
 
+使用公共基础设施配置（`~/workspace/env/my-docker-config`），不再使用本仓库 `docker/` 目录：
+
 ```shell
-docker-compose up
+# 加载管理命令（建议加入 ~/.zshrc）
+source ~/workspace/env/my-docker-config/infra/scripts/infra.sh
+
+# 启动 due 最小依赖：Redis + Consul
+infra-up redis consul
+
+# 需要事件总线时追加 nats
+infra-up redis consul nats
 ```
 
-> docker-compose.yaml文件已在docker目录中备好，可以直接取用
+查看服务状态：
+```shell
+infra-ps
+```
 
 2.获取框架
 
@@ -548,7 +602,131 @@ INFO[2024/07/03 14:53:12.991217] main.go:72 [I'm server, and the current time is
 INFO[2024/07/03 14:53:13.995049] main.go:72 [I'm server, and the current time is: 2024-07-03 14:53:13]
 ```
 
-### 12.压力测试
+### 12.二次开发指南
+
+#### 扩展点总览
+
+due 所有核心模块均以接口形式对外暴露，替换任意一层只需实现对应接口并在组件初始化时注入：
+
+| 扩展点 | 接口定义文件 | 注入方式 |
+|--------|-------------|----------|
+| 网络协议（tcp/kcp/ws） | `network/server.go` | `gate.WithServer()` |
+| 服务注册中心 | `registry/registry.go` | `gate.WithRegistry()` / `node.WithRegistry()` |
+| 用户位置追踪 | `locate/locator.go` | `gate.WithLocator()` / `node.WithLocator()` |
+| 节点间 RPC | `transport/transporter.go` | `node.WithTransporter()` / `mesh.WithTransporter()` |
+| 事件总线 | `eventbus/eventbus.go` | `eventbus.SetEventbus()` |
+| 动态配置 | `config/config.go` | `config.SetConfigurator()` |
+| 分布式锁 | `lock/lock.go` | `lock.SetLocker()` |
+| 缓存 | `cache/cache.go` | `cache.SetCacher()` |
+
+#### 场景一：新增路由 Handler（最常见）
+
+所有业务逻辑写在 Node 的 RouteHandler 里，第三个参数 `stateful` 控制是否要求已绑定 UID：
+
+```go
+const (
+    RouteLogin  = 1001
+    RouteLogout = 1002
+    RouteBattle = 2001
+)
+
+func initListen(proxy *node.Proxy) {
+    r := proxy.Router()
+    r.AddRouteHandler(RouteLogin,  false, loginHandler)   // 无需登录态
+    r.AddRouteHandler(RouteBattle, true,  battleHandler)  // 需要绑定 UID
+}
+
+func loginHandler(ctx node.Context) {
+    req := &LoginReq{}
+    res := &LoginRes{}
+    defer ctx.Response(res)
+
+    if err := ctx.Parse(req); err != nil {
+        res.Code = codes.InternalError.Code()
+        return
+    }
+    // 登录成功后绑定 UID
+    if err := ctx.BindGate(uid); err != nil {
+        res.Code = codes.InternalError.Code()
+        return
+    }
+    res.Code = codes.OK.Code()
+}
+```
+
+#### 场景二：使用 Actor 隔离有状态逻辑
+
+适合房间、战斗场景等需要独立状态的单元，Actor 内部消息串行处理，无需加锁：
+
+```go
+type RoomActor struct {
+    node.Actor
+    players map[int64]string
+}
+
+func (r *RoomActor) Init()    { r.players = make(map[int64]string) }
+func (r *RoomActor) Destroy() {}
+
+// 在 Node 启动后创建 Actor
+proxy.Actor().Create(ctx, &RoomActor{})
+```
+
+#### 场景三：Node 推送消息给客户端
+
+Node 不直接持有连接，必须经 GateLinker → Gate → session → Conn 路径：
+
+```go
+// 推送给单个用户
+proxy.Push(ctx, &node.PushArgs{
+    UID:     uid,
+    Message: &cluster.Message{Route: 3001, Data: data},
+})
+
+// 广播给所有在线用户
+proxy.Broadcast(ctx, &node.BroadcastArgs{
+    Kind:    cluster.User,
+    Message: &cluster.Message{Route: 3001, Data: data},
+})
+```
+
+#### 场景四：跨节点事件通知
+
+玩家上下线、全服公告等无需返回值的广播，用 eventbus 而不是 RPC：
+
+```go
+// 发布事件
+eventbus.Publish(ctx, "player.online", &PlayerOnlineEvent{UID: uid})
+
+// 任意节点订阅
+eventbus.Subscribe(ctx, "player.online", func(event *eventbus.Event) {
+    payload := &PlayerOnlineEvent{}
+    event.Decode(payload)
+})
+```
+
+#### 场景五：实现自定义注册中心
+
+```go
+// 实现 registry.Registry 接口（registry/registry.go）
+type MyRegistry struct{}
+
+func (r *MyRegistry) Register(ctx context.Context, ins *registry.ServiceInstance) error   { ... }
+func (r *MyRegistry) Deregister(ctx context.Context, ins *registry.ServiceInstance) error { ... }
+func (r *MyRegistry) Watch(ctx context.Context, name string) (registry.Watcher, error)    { ... }
+func (r *MyRegistry) Services(ctx context.Context, name string) ([]*registry.ServiceInstance, error) { ... }
+
+// 注入
+gate.WithRegistry(&MyRegistry{})
+```
+
+#### 二次开发原则
+
+1. **只动 Proxy，不动内部** — 业务代码只通过 `gate.Proxy` / `node.Proxy` 交互，不直接访问 session、linker 等内部结构。
+2. **接口替换，不 fork 核心** — 换注册中心、换网络层，实现接口注入即可，不要修改框架核心文件。
+3. **路由常量集中管理** — 所有路由号放在一个包里统一定义，客户端和服务端共用同一份。
+4. **有状态用 Actor，无状态用 Mesh** — 避免在普通 Handler 里用全局锁保护共享状态。
+
+### 13.压力测试
 1.压测机器
 
 ```text
@@ -646,7 +824,7 @@ throughput (TPS)     : 159147
 
 本测试结果仅供参考，详细测试用例代码请查看[due-benchmark](https://github.com/dobyte/due-benchmark)
 
-### 13.其他组件
+### 14.其他组件
 
 1. 日志组件
     * zap: github.com/dobyte/due/log/zap/v2
@@ -683,18 +861,18 @@ throughput (TPS)     : 159147
     * redis: github.com/dobyte/due/lock/redis/v2
     * memcache: github.com/dobyte/due/lock/memcache/v2
 
-### 14.其他客户端
+### 15.其他客户端
 
 * [due-client-ts](https://github.com/dobyte/due-client-ts)
 * [due-client-shape](https://github.com/dobyte/due-client-shape)
 
-### 15.详细示例
+### 16.详细示例
 
 - [due-examples](https://github.com/dobyte/due-examples)
 - [due-chat](https://github.com/dobyte/due-chat)
 - [due-doudizhu-server](https://github.com/dobyte/due-doudizhu-desc) 高性能分布式游戏服务器商业实战案例-斗地主服务器 (付费项目，购买请联系框架作者)
 
-### 16.三方示例
+### 17.三方示例
 
 <ul>
    <li style="line-height:30px;padding: 5px 0;">
@@ -715,7 +893,7 @@ throughput (TPS)     : 159147
    </li>
 </ul>
 
-### 17.常见问题
+### 18.常见问题
 
 1. 框架主模块与子模块版本不一致的问题
 
@@ -737,7 +915,7 @@ throughput (TPS)     : 159147
    3.至此，问题解决。
 
 
-### 18.交流与讨论
+### 19.交流与讨论
 
 <img title="" src="group_qrcode.jpeg" alt="交流群" width="175"><img title="" src="personal_qrcode.jpeg" alt="个人二维码" width="177">
 

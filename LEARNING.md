@@ -13,6 +13,12 @@
 > 状态说明：⬜ 未开始 / 🔄 进行中 / ✅ 已完成
 > 重要性说明：🔥 纯读源码必做 / ⭐ 基础铺垫 / ⏸ 有二开需求时再开启
 
+**附录章节（随时可查）**
+- [本地运行指南](#本地运行指南) — 启动中间件、Gate、Node 的完整步骤
+- [二次开发指南](#二次开发指南) — 扩展点总览 + 6 个业务场景代码示例
+- [新人源码阅读路线](#新人源码阅读路线) — 4 个阶段，从框架概念到跑通链路
+- [调试工具指南](#调试工具指南) — Bruno 适用范围、cluster/client 调试游戏协议、grpcurl 调试 Mesh
+
 ---
 
 ## 第一步：生成代码库概览 ✅
@@ -518,6 +524,645 @@ internal/link──→ locate
 
 **改动意向记录**
 <!-- 在此记录二开目标，例如：新增某协议支持、扩展某注册中心等 -->
+
+---
+
+## 本地运行指南
+
+### 环境要求
+
+| 工具 | 版本 | 说明 |
+|------|------|------|
+| Go | 1.21+ | 编译运行 |
+| Docker Desktop | 最新稳定版 | 运行中间件容器 |
+| 公共基础设施 | — | `~/workspace/env/my-docker-config` |
+
+---
+
+### 第一步：一键启动中间件
+
+本仓库提供了 `dev.sh` 脚本，封装了所有中间件的启动操作。
+
+**前提：加载公共管理命令**（建议写入 `~/.zshrc`，只需配置一次）
+
+```bash
+echo 'source ~/workspace/env/my-docker-config/infra/scripts/infra.sh' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**启动**
+
+```bash
+# 默认启动：redis + consul + nats（推荐，覆盖 due 所有常用模块）
+./dev.sh
+
+# 用 etcd 替代 consul（适合测试 etcd 注册中心）
+./dev.sh etcd
+
+# 查看运行状态
+./dev.sh status
+
+# 停止所有 due 相关服务
+./dev.sh stop
+```
+
+**due 框架各模块与服务的对应关系**
+
+| 服务 | due 模块 | 端口 | Web UI |
+|------|----------|------|--------|
+| Redis | locate（用户位置）/ cache / lock | 6379 | — |
+| Consul | registry（服务发现）/ config | 8500 | http://localhost:8500 |
+| NATS | eventbus（跨节点事件） | 4222 | http://localhost:8222 |
+| etcd | registry（可选，替代 consul） | 2379 | http://localhost:8070 |
+| Nacos | registry / config（可选） | 8848 | http://localhost:8848/nacos |
+| Kafka | eventbus（可选，替代 nats） | 9092 | — |
+
+> Nacos 依赖 MySQL，需单独执行 `infra-nacos-up` 启动。
+
+**启动后验证**
+
+```bash
+# 检查容器是否全部 running
+./dev.sh status
+
+# 验证 Redis 可访问
+docker exec infra-redis redis-cli ping    # 应返回 PONG
+
+# 验证 Consul 可访问
+curl -s http://localhost:8500/v1/status/leader   # 应返回当前 leader 地址
+
+# 验证 NATS 可访问
+curl -s http://localhost:8222/healthz            # 应返回 OK
+```
+
+---
+
+### 第二步：新建业务项目
+
+due 是框架库，本仓库没有 `main.go`，需在外部新建项目引用：
+
+```bash
+mkdir ~/due-demo && cd ~/due-demo
+go mod init due-demo
+
+# 核心包
+go get github.com/dobyte/due/v2@latest
+
+# 按实际选用的组件添加（以下为 consul + redis + ws 默认组合）
+go get github.com/dobyte/due/locate/redis/v2@latest
+go get github.com/dobyte/due/network/ws/v2@latest
+go get github.com/dobyte/due/registry/consul/v2@latest
+```
+
+> 子模块版本须与主模块对齐，版本不一致时执行：
+> `go get github.com/dobyte/due/locate/redis/v2@<主模块commit>`
+
+---
+
+### 第三步：启动 Gate
+
+```go
+// gate/main.go
+package main
+
+import (
+    "github.com/dobyte/due/locate/redis/v2"
+    "github.com/dobyte/due/network/ws/v2"
+    "github.com/dobyte/due/registry/consul/v2"
+    due "github.com/dobyte/due/v2"
+    "github.com/dobyte/due/v2/cluster/gate"
+)
+
+func main() {
+    container := due.NewContainer()
+    container.Add(gate.NewGate(
+        gate.WithServer(ws.NewServer()),       // WS 服务器，监听 :3553
+        gate.WithLocator(redis.NewLocator()),  // 用户位置追踪
+        gate.WithRegistry(consul.NewRegistry()), // 服务注册
+    ))
+    container.Serve()
+}
+```
+
+```bash
+cd gate && go run main.go
+```
+
+启动成功日志示例：
+
+```
+┌─────────────────────────Gate─────────────────────────┐
+| Name: gate                                           |
+| Server: [ws] 0.0.0.0:3553                            |
+| Locator: redis                                       |
+| Registry: consul                                     |
+└──────────────────────────────────────────────────────┘
+```
+
+---
+
+### 第四步：启动 Node
+
+```go
+// node/main.go
+package main
+
+import (
+    "fmt"
+    "github.com/dobyte/due/locate/redis/v2"
+    "github.com/dobyte/due/registry/consul/v2"
+    due "github.com/dobyte/due/v2"
+    "github.com/dobyte/due/v2/cluster/node"
+    "github.com/dobyte/due/v2/codes"
+    "github.com/dobyte/due/v2/log"
+    "github.com/dobyte/due/v2/utils/xtime"
+)
+
+const routeGreet = 1
+
+func main() {
+    container := due.NewContainer()
+    component := node.NewNode(
+        node.WithLocator(redis.NewLocator()),
+        node.WithRegistry(consul.NewRegistry()),
+    )
+    component.Proxy().Router().AddRouteHandler(routeGreet, false, greetHandler)
+    container.Add(component)
+    container.Serve()
+}
+
+type greetReq struct{ Message string `json:"message"` }
+type greetRes struct {
+    Code    int    `json:"code"`
+    Message string `json:"message"`
+}
+
+func greetHandler(ctx node.Context) {
+    req := &greetReq{}
+    res := &greetRes{}
+    defer ctx.Response(res)
+
+    if err := ctx.Parse(req); err != nil {
+        log.Errorf("parse failed: %v", err)
+        res.Code = codes.InternalError.Code()
+        return
+    }
+    res.Code = codes.OK.Code()
+    res.Message = fmt.Sprintf("server time: %s", xtime.Now().Format(xtime.DateTime))
+}
+```
+
+```bash
+cd node && go run main.go
+```
+
+启动成功日志示例：
+
+```
+┌─────────────────────────Node─────────────────────────┐
+| Name: node                                           |
+| Locator: redis                                       |
+| Registry: consul                                     |
+└──────────────────────────────────────────────────────┘
+```
+
+---
+
+### 常见问题
+
+**中间件启动失败**
+```bash
+# 查看具体容器日志
+infra-logs redis
+infra-logs consul
+infra-logs nats
+```
+
+**端口冲突**
+```bash
+# 查看占用端口的进程
+lsof -i :6379
+lsof -i :8500
+lsof -i :4222
+```
+
+**子模块版本不一致**
+
+参见 README.md 第 19 节「常见问题」，或执行：
+```bash
+go get github.com/dobyte/due/<sub-module>/v2@<commit-hash>
+```
+
+---
+
+### 单模块测试（无需启动集群）
+
+```bash
+# packet / session 无外部依赖，直接运行
+go test github.com/dobyte/due/v2/packet -v
+go test github.com/dobyte/due/v2/session -v
+
+# locate 需要 Redis（先执行 ./dev.sh）
+go test github.com/dobyte/due/v2/locate/redis -v
+```
+
+---
+
+## 二次开发指南
+
+### 扩展点总览
+
+due 的所有核心模块都以接口形式对外暴露，替换任意一层只需实现对应接口并在组件初始化时注入。
+
+| 扩展点 | 接口文件 | 注入位置 |
+|--------|----------|----------|
+| 网络协议（tcp/kcp/ws） | `network/server.go` | `gate.WithServer()` |
+| 服务注册中心 | `registry/registry.go` | `gate.WithRegistry()` / `node.WithRegistry()` |
+| 用户位置追踪 | `locate/locator.go` | `gate.WithLocator()` / `node.WithLocator()` |
+| 节点间 RPC | `transport/transporter.go` | `node.WithTransporter()` / `mesh.WithTransporter()` |
+| 事件总线 | `eventbus/eventbus.go` | `eventbus.SetEventbus()` |
+| 动态配置 | `config/config.go` | `config.SetConfigurator()` |
+| 分布式锁 | `lock/lock.go` | `lock.SetLocker()` |
+| 缓存 | `cache/cache.go` | `cache.SetCacher()` |
+
+### 场景一：新增路由 Handler
+
+业务逻辑全部写在 Node 的 RouteHandler 里，这是最常见的扩展点：
+
+```go
+// 定义路由常量（与客户端约定）
+const (
+    RouteLogin  = 1001
+    RouteLogout = 1002
+    RouteBattle = 2001
+)
+
+func initListen(proxy *node.Proxy) {
+    r := proxy.Router()
+    r.AddRouteHandler(RouteLogin,  false, loginHandler)
+    r.AddRouteHandler(RouteLogout, false, logoutHandler)
+    r.AddRouteHandler(RouteBattle, true,  battleHandler) // true = 需要登录态
+}
+```
+
+**关键文件：** `cluster/node/router.go`，`AddRouteHandler` 第三个参数 `stateful bool` 控制是否要求已绑定 UID。
+
+### 场景二：使用 Actor 隔离有状态逻辑
+
+适合房间、战斗场景等需要独立状态的业务单元，避免跨 goroutine 的锁竞争：
+
+```go
+// 实现 node.Processor 接口
+type RoomActor struct {
+    node.Actor
+    players map[int64]string
+}
+
+func (r *RoomActor) Init() {
+    r.players = make(map[int64]string)
+}
+
+func (r *RoomActor) Destroy() {}
+
+// 在 Node 启动后通过 Proxy 创建 Actor
+proxy.Actor().Create(ctx, &RoomActor{})
+```
+
+**关键文件：** `cluster/node/actor.go`，`cluster/node/proxy.go`（Actor 方法）。
+
+### 场景三：Node 推送消息给客户端
+
+Node 不直接持有连接，必须经 GateLinker → Gate → session → Conn 这条路径：
+
+```go
+// 推送给单个用户（按 UID）
+proxy.Push(ctx, &node.PushArgs{
+    UID:     uid,
+    Message: &cluster.Message{Route: 3001, Data: data},
+})
+
+// 广播给所有在线用户
+proxy.Broadcast(ctx, &node.BroadcastArgs{
+    Kind:    cluster.User,
+    Message: &cluster.Message{Route: 3001, Data: data},
+})
+```
+
+**关键文件：** `cluster/node/proxy.go`，`internal/link/gate.go`。
+
+### 场景四：Node 调用 Mesh 微服务
+
+Mesh 适合无状态的计算服务（排行榜、匹配服等），Node 通过 transport RPC 调用：
+
+```go
+// node handler 内调用 mesh
+func battleHandler(ctx node.Context) {
+    res := &MatchResult{}
+    if err := ctx.CallNode(RouteMeshMatch, req, res); err != nil {
+        // 处理错误
+    }
+}
+```
+
+**关键文件：** `internal/link/node.go`（doRPC），`transport/transporter.go`（Client 接口）。
+
+### 场景五：实现自定义注册中心
+
+若现有的 consul/etcd/nacos 都不满足需求，可以自己实现：
+
+```go
+// 实现 registry.Registry 接口（registry/registry.go）
+type MyRegistry struct{}
+
+func (r *MyRegistry) Register(ctx context.Context, ins *registry.ServiceInstance) error   { ... }
+func (r *MyRegistry) Deregister(ctx context.Context, ins *registry.ServiceInstance) error { ... }
+func (r *MyRegistry) Watch(ctx context.Context, name string) (registry.Watcher, error)    { ... }
+func (r *MyRegistry) Services(ctx context.Context, name string) ([]*registry.ServiceInstance, error) { ... }
+
+// 注入
+gate.WithRegistry(&MyRegistry{})
+```
+
+**关键文件：** `registry/registry.go`（接口定义），参考 `registry/consul/` 的实现。
+
+### 场景六：跨节点事件通知
+
+玩家上线/下线、全服公告等无需返回值的广播，用 eventbus 而不是 RPC：
+
+```go
+// 发布事件（Gate 或 Node 均可）
+eventbus.Publish(ctx, "player.online", &PlayerOnlineEvent{UID: uid})
+
+// 订阅事件（任意节点）
+eventbus.Subscribe(ctx, "player.online", func(event *eventbus.Event) {
+    payload := &PlayerOnlineEvent{}
+    event.Decode(payload)
+    // 处理逻辑
+})
+```
+
+**关键文件：** `eventbus/eventbus.go`，实现参考 `eventbus/redis/`。
+
+### 二开原则
+
+1. **只动 Proxy，不动内部** — 业务代码只通过 `gate.Proxy` / `node.Proxy` 交互，不直接访问 session、linker 等内部结构。
+2. **接口替换，不 fork 核心** — 换注册中心、换网络层，实现接口注入即可，不要修改框架核心文件。
+3. **路由常量集中管理** — 所有路由号放在一个包里统一定义，客户端和服务端共用同一份。
+4. **有状态用 Actor，无状态用 Mesh** — 避免在普通 Handler 里用全局锁保护共享状态。
+
+---
+
+## 新人源码阅读路线
+
+面向第一次接触 due 的开发者，按照以下顺序阅读，每一步都建立在前一步的基础上。
+
+### 第一阶段：搞清楚框架是什么（1 天）
+
+目标：能用一句话说清楚 due 解决什么问题，四个节点角色各干什么。
+
+| 顺序 | 文件 | 读什么 |
+|------|------|--------|
+| 1 | `README.md` | 整体介绍、架构图、Gate/Node/Mesh 区别 |
+| 2 | `container.go` | `NewContainer` / `Add` / `Serve`，理解生命周期 |
+| 3 | `component/component.go` | `Component` 接口定义，只有 4 个方法 |
+| 4 | `cluster/gate/gate.go` 前 50 行 | Gate 的字段组成，知道它持有什么 |
+| 5 | `cluster/node/node.go` 前 50 行 | Node 的字段组成，和 Gate 对比 |
+
+**检验方式：** 不看代码，能画出 Container 与 Gate/Node 的关系图。
+
+---
+
+### 第二阶段：跟踪一条消息（2 天）
+
+目标：能独立描述客户端发一条消息到 Node Handler 的完整路径，说出每一跳的文件名和函数名。
+
+**上行路径（客户端 → Node）：**
+
+```
+network/tcp/server.go       → Start() 接受连接，回调 OnReceive
+cluster/gate/gate.go        → handleReceive()  收到原始字节
+cluster/gate/proxy.go       → deliver()        解包 + 定位 Node
+internal/link/node.go       → Deliver()        通过 transporter 转发
+cluster/node/router.go      → deliver() / handle()  分发到 Handler
+```
+
+**下行路径（Node → 客户端）：**
+
+```
+cluster/node/proxy.go       → Push()
+internal/link/gate.go       → Push()  定位 UID 所在 Gate
+internal/transporter/gate/  → client.Push() / server.push()
+session/session.go          → Push()  找到 Conn
+network/tcp/server_conn.go  → Push()  写入 TCP 缓冲区
+```
+
+**读代码时的辅助方法：**
+```bash
+# 查找某函数的所有调用方
+grep -rn "deliver(" cluster/ internal/ --include="*.go"
+
+# 查找接口的所有实现
+grep -rn "func.*Deliver(" . --include="*.go"
+```
+
+---
+
+### 第三阶段：理解关键设计决策（2 天）
+
+每读完一个问题，用自己的话回答，再让 Claude 纠正。
+
+| 问题 | 相关文件 |
+|------|----------|
+| CID 和 UID 的区别，什么时候绑定 UID？ | `session/session.go` |
+| registry 和 locate 分别追踪什么？ | `registry/registry.go`，`locate/locator.go` |
+| internal/transporter 和 transport 的区别？ | `internal/transporter/`，`transport/transporter.go` |
+| Actor 为什么能不加锁处理消息？ | `cluster/node/actor.go` |
+| Node 为什么不能直接写客户端连接？ | `cluster/node/proxy.go` Push 方法 |
+| heartbeat 包和数据包在 header 上怎么区分？ | `packet/packet.go` |
+
+---
+
+### 第四阶段：跑通完整链路（1 天）
+
+参考「本地运行指南」章节，在本地跑起来 Gate + Node + Client，观察日志输出，对照第二阶段的调用链验证理解。
+
+---
+
+## 调试工具指南
+
+due 的通信协议分两类，调试工具的选择取决于你调的是哪一层：
+
+| 层 | 协议 | 适合工具 |
+|----|------|----------|
+| 客户端 ↔ Gate | TCP / KCP / WebSocket + due packet 二进制协议 | 内置 `cluster/client`、`network/tcp` 测试客户端 |
+| HTTP 管理接口 | HTTP/HTTPS（fiber） | **Bruno** ✅ |
+| Node ↔ Mesh | gRPC / rpcx | grpcurl、BloomRPC |
+
+### Bruno 的适用范围
+
+Bruno 是 HTTP API 调试工具。due 框架在 `component/http` 提供了基于 fiber 的 HTTP 服务器组件，**只有业务方挂载了 HTTP 组件时，才有接口可以用 Bruno 调试**。
+
+典型使用场景：
+- 后台管理 API（查玩家数据、踢人、发公告）
+- 运营工具接口
+- Mesh 服务如果对外暴露了 HTTP 端点
+
+**HTTP 组件用法：**
+
+```go
+import httpcomp "github.com/dobyte/due/component/http/v2"
+
+server := httpcomp.NewServer(
+    httpcomp.WithAddr(":8080"),
+)
+
+server.Proxy().Router().
+    Post("/api/kick", kickHandler).
+    Get("/api/player/:uid", getPlayerHandler)
+
+container.Add(server)
+```
+
+启动后，就可以在 Bruno 中创建 Collection，新建请求：
+
+```
+POST http://localhost:8080/api/kick
+Content-Type: application/json
+
+{
+  "uid": 10001,
+  "reason": "违规"
+}
+```
+
+### Bruno 项目结构建议
+
+在业务项目根目录建一个 `bruno/` 文件夹：
+
+```
+your-game-server/
+├── bruno/
+│   ├── bruno.json          ← Collection 配置
+│   ├── environments/
+│   │   ├── local.bru       ← 本地环境变量（baseUrl、token 等）
+│   │   └── staging.bru
+│   ├── admin/
+│   │   ├── kick.bru
+│   │   └── player-info.bru
+│   └── mesh/
+│       └── match.bru
+```
+
+`bruno.json` 示例：
+```json
+{
+  "version": "1",
+  "name": "game-server",
+  "type": "collection"
+}
+```
+
+`environments/local.bru` 示例：
+```
+vars {
+  baseUrl: http://localhost:8080
+  adminToken: dev-token-123
+}
+```
+
+请求文件 `admin/kick.bru` 示例：
+```
+meta {
+  name: 踢出玩家
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/kick
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+body:json {
+  {
+    "uid": 10001,
+    "reason": "违规操作"
+  }
+}
+```
+
+### 调试游戏协议（TCP/WS 路由消息）
+
+游戏主协议（Gate ↔ Node）是二进制的 due packet，**Bruno 不支持**。有两种方式调试：
+
+**方式一：使用框架内置 cluster/client（推荐）**
+
+框架自带测试客户端，直接写 Go 代码模拟客户端行为：
+
+```go
+// client/main.go
+package main
+
+import (
+    due "github.com/dobyte/due/v2"
+    "github.com/dobyte/due/v2/cluster"
+    "github.com/dobyte/due/v2/cluster/client"
+    "github.com/dobyte/due/network/ws/v2"
+)
+
+func main() {
+    container := due.NewContainer()
+    component := client.NewClient(
+        client.WithClient(ws.NewClient()),
+    )
+
+    proxy := component.Proxy()
+    proxy.AddHookListener(cluster.Start, func(p *client.Proxy) {
+        conn, _ := p.Dial()
+        _ = conn.Push(&cluster.Message{
+            Route: 1001,
+            Data:  []byte(`{"token":"test123"}`),
+        })
+    })
+    proxy.AddRouteHandler(1001, func(ctx *client.Context) {
+        // 打印服务端响应
+    })
+
+    container.Add(component)
+    container.Serve()
+}
+```
+
+**方式二：直接用 network/tcp 层测试（更底层）**
+
+参考 `network/tcp/client_test.go`，手动 Pack/Unpack packet，适合测试协议编解码本身：
+
+```go
+conn, _ := tcp.NewClient().Dial()
+msg, _ := packet.PackMessage(&packet.Message{
+    Seq:    1,
+    Route:  1001,
+    Buffer: []byte(`{"token":"test123"}`),
+})
+conn.Push(msg)
+```
+
+### 调试 Mesh gRPC 接口
+
+如果 Mesh 使用 gRPC transport，可以用 `grpcurl` 命令行工具：
+
+```bash
+# 列出所有服务
+grpcurl -plaintext localhost:9000 list
+
+# 调用接口
+grpcurl -plaintext -d '{"uid": 10001}' localhost:9000 MatchService/Match
+```
 
 ---
 
