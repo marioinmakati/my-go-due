@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 面试目标提醒
+
+> **每次改动代码前必读**
+>
+> 用户的目标是**游戏开发面试**，面试主线项目是 `my-go-chess`（`/Users/napo/workspace/github/my-go-chess`）。
+>
+> - `my-go-chess` 自行实现了网络层、状态机、tracing/metrics，体现底层理解，面试价值高
+> - **不建议将 my-go-chess 迁移到 due 框架**，迁移会抹掉底层实现的亮点
+> - due 框架（本仓库）定位是：学习分布式架构原理 + 作为"如果要水平扩展，下一步怎么做"的面试延伸话题
+> - 改动本仓库代码时，优先考虑**学习目的**，而不是生产迁移目的
+
 ## Commands
 
 ```bash
